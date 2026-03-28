@@ -25,9 +25,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { auth, db } from "./firebase";
 import {
+  getRedirectResult,
   onAuthStateChanged,
   signInWithPopup,
   signInWithRedirect,
+  signInAnonymously,
   GoogleAuthProvider,
   signOut,
   OAuthProvider,
@@ -66,6 +68,34 @@ interface SubscriptionActivation {
   tierName: string;
   trialDays: number;
   provider: "stripe" | "paypal";
+}
+
+interface PreviewUser {
+  uid: string;
+  email: string;
+  isPreview: true;
+}
+
+function describeAuthError(error: any) {
+  const code = error?.code || "";
+
+  if (code.includes("operation-not-allowed")) {
+    return "This sign-in provider is not enabled in Firebase yet. Use Preview Mode for now or enable the provider in Firebase Auth.";
+  }
+
+  if (code.includes("unauthorized-domain")) {
+    return "This site domain is not authorized in Firebase Auth. Add the current domain in the Firebase console and try again.";
+  }
+
+  if (code.includes("account-exists-with-different-credential")) {
+    return "An account already exists with a different sign-in method. Try the other provider for this email.";
+  }
+
+  if (code.includes("popup-closed-by-user") || code.includes("cancelled-popup-request")) {
+    return "The sign-in window was closed before completion. Try again or use Preview Mode.";
+  }
+
+  return "Login failed. Try again, switch providers, or use Preview Mode.";
 }
 
 const LazyOverviewDashboard = lazy(() => import("./components/OverviewDashboard"));
@@ -107,12 +137,16 @@ export default function App() {
   const [data, setData] = useState<KaleidoData | null>(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [previewMode, setPreviewMode] = useState(false);
   const [config, setConfig] = useState<WhiteLabelConfig | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [subscriptionTier, setSubscriptionTier] = useState<string | null>(null);
   const [subscriptionLevel, setSubscriptionLevel] = useState<"level-1" | "level-2" | "level-3" | null>(null);
+  const [loginHint, setLoginHint] = useState<string | null>(null);
   const isOverviewTab = activeTab === "overview" || activeTab === "nodes" || activeTab === "stability";
+  const effectiveUser: any = user ?? (previewMode ? ({ uid: "preview-user", email: "Preview Mode", isPreview: true } satisfies PreviewUser) : null);
+  const isPreviewUser = Boolean(effectiveUser?.isPreview);
 
   const hasAccess = (required: "level-1" | "level-2" | "level-3") => {
     if (!subscriptionLevel) {
@@ -145,37 +179,26 @@ export default function App() {
 
   useEffect(() => {
     const fetchConfig = async (uid: string) => {
-      const docRef = doc(db, "whiteLabelConfigs", uid);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setConfig(docSnap.data() as WhiteLabelConfig);
-      } else {
-        setConfig({
-          appName: "Hyper-Cross Trading Platform",
-          primaryColor: "#3b82f6"
-        });
+      try {
+        const docRef = doc(db, "whiteLabelConfigs", uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setConfig(docSnap.data() as WhiteLabelConfig);
+          return;
+        }
+      } catch (error) {
+        console.error("Failed to load config", error);
       }
+
+      setConfig({
+        appName: "Hyper-Cross Trading Platform",
+        primaryColor: "#3b82f6"
+      });
     };
 
-    // Check for referral ID in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const refId = urlParams.get('ref');
-
-    if (refId) {
-      // If referred, load the referrer's config
-      fetchConfig(refId);
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        // If no referral ID, load the user's own config
-        if (!refId) {
-          fetchConfig(currentUser.uid);
-        }
-        
-        // Check subscription status (mock for now)
-        const subRef = doc(db, "subscriptions", currentUser.uid);
+    const fetchSubscription = async (uid: string) => {
+      try {
+        const subRef = doc(db, "subscriptions", uid);
         const subSnap = await getDoc(subRef);
         if (subSnap.exists()) {
           const subData = subSnap.data();
@@ -184,24 +207,115 @@ export default function App() {
           setSubscriptionTier(tier);
           setSubscriptionLevel(level);
           setShowSubscriptions(false);
-        } else {
-          // If no subscription, show plans
-          setShowSubscriptions(true);
+          return;
         }
-      } else {
+
+        setShowSubscriptions(true);
+      } catch (error) {
+        console.error("Failed to load subscription", error);
+        setSubscriptionTier("Level 1");
+        setSubscriptionLevel("level-1");
+        setShowSubscriptions(false);
+      }
+    };
+
+    let isMounted = true;
+
+    const resolveRedirect = async () => {
+      try {
+        await getRedirectResult(auth);
+      } catch (error: any) {
+        const code = error?.code || "";
+        if (isMounted) {
+          console.error("Redirect sign-in failed", error);
+          const hint = describeAuthError(error) + ` (code: ${code})`;
+          setLoginHint(hint);
+
+          // If the provider is not configured, auto-enter preview so the user
+          // isn't stuck on a broken login screen.
+          if (code.includes("operation-not-allowed") || code.includes("unauthorized-domain")) {
+            setTimeout(() => {
+              if (isMounted) enterPreviewMode();
+            }, 2000);
+          }
+        }
+      }
+    };
+
+    resolveRedirect();
+
+    // Check for referral ID in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const refId = urlParams.get('ref');
+
+    if (refId) {
+      fetchConfig(refId);
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!isMounted) {
+        return;
+      }
+
+      setUser(currentUser);
+
+      if (currentUser) {
+        setPreviewMode(false);
+        setLoginHint(null);
+
+        if (!refId) {
+          await fetchConfig(currentUser.uid);
+        }
+
+        await fetchSubscription(currentUser.uid);
+      } else if (!previewMode) {
         if (!refId) {
           setConfig(null);
         }
         setSubscriptionTier(null);
         setSubscriptionLevel(null);
+        setShowSubscriptions(false);
       }
     });
 
-    return () => unsubscribe();
-  }, []);
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [previewMode]);
+
+  const enterPreviewMode = () => {
+    setPreviewMode(true);
+    setShowSubscriptions(false);
+    setSubscriptionTier("Preview Access");
+    setSubscriptionLevel("level-3");
+    setActiveTab("overview");
+    setLoginHint(null);
+
+    if (!config) {
+      setConfig({
+        appName: "Hyper-Cross Trading Platform",
+        primaryColor: "#3b82f6"
+      });
+    }
+  };
+
+  const handleSignOut = async () => {
+    setPreviewMode(false);
+    setShowSubscriptions(false);
+    setSubscriptionTier(null);
+    setSubscriptionLevel(null);
+
+    if (auth.currentUser) {
+      await signOut(auth);
+      return;
+    }
+
+    setUser(null);
+  };
 
   useEffect(() => {
-    if (!user) return;
+    if (!effectiveUser) return;
 
     const fetchData = async () => {
       try {
@@ -224,17 +338,17 @@ export default function App() {
     fetchData();
     const interval = setInterval(fetchData, 5000); // Poll every 5 seconds
     return () => clearInterval(interval);
-  }, [user, config]);
+  }, [effectiveUser, config]);
 
-  if (!user) {
-    return <LoginScreen data={data} config={config} />;
+  if (!effectiveUser) {
+    return <LoginScreen data={data} config={config} loginHint={loginHint} onEnterPreview={enterPreviewMode} />;
   }
 
-  if (showSubscriptions) {
+  if (showSubscriptions && !isPreviewUser) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] text-foreground flex flex-col">
         <div className="flex justify-end p-4">
-          <Button variant="ghost" onClick={() => signOut(auth)} className="text-white/50 hover:text-white">
+          <Button variant="ghost" onClick={handleSignOut} className="text-white/50 hover:text-white">
             <LogOut className="mr-2 h-4 w-4" /> Sign Out
           </Button>
         </div>
@@ -245,9 +359,9 @@ export default function App() {
               setSubscriptionLevel(activation.tierId);
               setShowSubscriptions(false);
 
-              if (user?.uid) {
+              if (effectiveUser?.uid && !isPreviewUser) {
                 const trialEndsAt = new Date(Date.now() + activation.trialDays * 24 * 60 * 60 * 1000);
-                await setDoc(doc(db, "subscriptions", user.uid), {
+                await setDoc(doc(db, "subscriptions", effectiveUser.uid), {
                   tier: activation.tierName,
                   level: activation.tierId,
                   provider: activation.provider,
@@ -313,7 +427,7 @@ export default function App() {
           <NavItem icon={<Settings size={18} />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
         </nav>
         <div className="p-4 border-t border-white/10 text-xs text-white/40 text-center">
-          {user.email}
+          {isPreviewUser ? "Preview Mode" : (effectiveUser.email || "Signed in")}
         </div>
       </aside>
 
@@ -329,7 +443,7 @@ export default function App() {
             <span className="text-sm font-medium text-white/80 tracking-wide uppercase">Network Health: Optimal</span>
           </div>
           <div className="flex items-center gap-4">
-            <Button variant="ghost" className="text-white/60 hover:text-white hover:bg-white/10" onClick={() => signOut(auth)}>
+            <Button variant="ghost" className="text-white/60 hover:text-white hover:bg-white/10" onClick={handleSignOut}>
               Sign Out
             </Button>
             <Button 
@@ -348,29 +462,29 @@ export default function App() {
               <LazySettingsPanel config={config} onConfigSaved={(newConfig) => setConfig(newConfig)} />
             )}
             {activeTab === "issuance" && hasAccess("level-2") && (
-              <LazyAssetIssuance primaryColor={primaryColor} userUid={user.uid} config={config} />
+              <LazyAssetIssuance primaryColor={primaryColor} userUid={effectiveUser.uid} config={config} />
             )}
             {activeTab === "rwa" && hasAccess("level-2") && (
-              <LazyRWAInfrastructure primaryColor={primaryColor} userUid={user.uid} config={config} />
+              <LazyRWAInfrastructure primaryColor={primaryColor} userUid={effectiveUser.uid} config={config} />
             )}
             {activeTab === "nft" && hasAccess("level-2") && (
-              <LazyNFTMarketplace primaryColor={primaryColor} userUid={user.uid} config={config} />
+              <LazyNFTMarketplace primaryColor={primaryColor} userUid={effectiveUser.uid} config={config} />
             )}
             {activeTab === "spot" && <LazyTradingEngine primaryColor={primaryColor} />}
             {activeTab === "derivatives" && hasAccess("level-2") && (
-              <LazyDerivatives primaryColor={primaryColor} userUid={user.uid} />
+              <LazyDerivatives primaryColor={primaryColor} userUid={effectiveUser.uid} />
             )}
             {activeTab === "copytrading" && hasAccess("level-2") && (
-              <LazyCopyTrading primaryColor={primaryColor} userUid={user.uid} />
+              <LazyCopyTrading primaryColor={primaryColor} userUid={effectiveUser.uid} />
             )}
             {activeTab === "launchpad" && hasAccess("level-2") && (
-              <LazyLaunchpad primaryColor={primaryColor} userUid={user.uid} />
+              <LazyLaunchpad primaryColor={primaryColor} userUid={effectiveUser.uid} />
             )}
             {activeTab === "mining" && hasAccess("level-3") && (
-              <LazyMiningPools primaryColor={primaryColor} userUid={user.uid} />
+              <LazyMiningPools primaryColor={primaryColor} userUid={effectiveUser.uid} />
             )}
             {activeTab === "custody" && hasAccess("level-3") && (
-              <LazyCustodyStorage primaryColor={primaryColor} userUid={user.uid} />
+              <LazyCustodyStorage primaryColor={primaryColor} userUid={effectiveUser.uid} />
             )}
             {isOverviewTab && (
               <LazyOverviewDashboard data={data} loading={loading} primaryColor={primaryColor} />
@@ -392,7 +506,16 @@ export default function App() {
   );
 }
 
-function LoginScreen({ data, config }: { data: any, config: any }) {
+function LoginScreen({
+  config,
+  loginHint,
+  onEnterPreview,
+}: {
+  data: any,
+  config: any,
+  loginHint: string | null,
+  onEnterPreview: () => void,
+}) {
   const [authError, setAuthError] = useState<string | null>(null);
   const appName = config?.appName || 'Hyper-Cross Trading Platform';
   const primaryColor = config?.primaryColor || '#3b82f6';
@@ -403,6 +526,20 @@ function LoginScreen({ data, config }: { data: any, config: any }) {
       await signInWithPopup(auth, provider);
     } catch (error: any) {
       const code = error?.code || "";
+
+      // Do NOT attempt redirect when the provider itself is not enabled —
+      // redirect will also fail and leaves the user stuck on reload.
+      const providerNotEnabled =
+        code.includes("operation-not-allowed") ||
+        code.includes("unauthorized-domain");
+
+      if (providerNotEnabled) {
+        // Auto-enter preview mode so user isn't blocked
+        setAuthError(describeAuthError(error) + ` (code: ${code})`);
+        setTimeout(() => onEnterPreview(), 2000);
+        return;
+      }
+
       const shouldRedirect =
         code.includes("popup") ||
         code.includes("cancelled") ||
@@ -411,15 +548,18 @@ function LoginScreen({ data, config }: { data: any, config: any }) {
 
       if (shouldRedirect) {
         try {
+          setAuthError("Continuing with browser sign-in…");
           await signInWithRedirect(auth, provider);
           return;
-        } catch (redirectError) {
+        } catch (redirectError: any) {
           console.error("Redirect login failed", redirectError);
+          setAuthError(describeAuthError(redirectError));
+          return;
         }
       }
 
       console.error("Login failed", error);
-      setAuthError("Login failed. Please try again or use another provider.");
+      setAuthError(describeAuthError(error) + ` (code: ${code})`);
     }
   };
 
@@ -431,6 +571,17 @@ function LoginScreen({ data, config }: { data: any, config: any }) {
   const handleAppleLogin = async () => {
     const provider = new OAuthProvider('apple.com');
     await handleSocialLogin(provider);
+  };
+
+  const handlePreviewLogin = async () => {
+    setAuthError(null);
+
+    try {
+      await signInAnonymously(auth);
+    } catch (error) {
+      console.error("Anonymous sign-in failed", error);
+      onEnterPreview();
+    }
   };
 
   return (
@@ -525,17 +676,21 @@ function LoginScreen({ data, config }: { data: any, config: any }) {
               </div>
             )}
 
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-white/10" />
+            {loginHint && !authError && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+                {loginHint}
               </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-[#0a0a0a] px-2 text-white/40">Secure & Instant</span>
-              </div>
-            </div>
+            )}
 
-            <p className="text-center text-xs text-white/40 mt-4">
-              By continuing, you agree to our Terms of Service and Privacy Policy. Your wallet is securely generated via Multi-Party Computation (MPC).
+            <Button
+              onClick={handlePreviewLogin}
+              variant="outline"
+              className="w-full border-amber-500/50 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 hover:border-amber-400 font-semibold"
+            >
+              Continue in Preview Mode
+            </Button>
+            <p className="text-center text-xs text-white/40">
+              Preview Mode gives full dashboard access without social login — useful while Firebase auth providers are being configured.
             </p>
           </CardContent>
         </Card>
