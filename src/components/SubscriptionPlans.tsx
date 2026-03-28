@@ -19,6 +19,7 @@ const plans = [
     ],
     icon: <Zap className="h-6 w-6 text-blue-400" />,
     accent: "border-blue-400/50",
+    popular: false,
   },
   {
     id: "level-2",
@@ -54,6 +55,7 @@ const plans = [
     ],
     icon: <Crown className="h-6 w-6 text-amber-400" />,
     accent: "border-amber-400/50",
+    popular: false,
   }
 ] as const;
 
