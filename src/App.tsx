@@ -24,8 +24,15 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { auth, db } from "./firebase";
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, OAuthProvider } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  GoogleAuthProvider,
+  signOut,
+  OAuthProvider,
+} from "firebase/auth";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 interface KaleidoData {
   nodeState: string;
@@ -52,6 +59,13 @@ interface WhiteLabelConfig {
   tokenName?: string;
   kaleidoRestUrl?: string;
   kaleidoAuthHeader?: string;
+}
+
+interface SubscriptionActivation {
+  tierId: "level-1" | "level-2" | "level-3";
+  tierName: string;
+  trialDays: number;
+  provider: "stripe" | "paypal";
 }
 
 const LazyOverviewDashboard = lazy(() => import("./components/OverviewDashboard"));
@@ -97,7 +111,37 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [showSubscriptions, setShowSubscriptions] = useState(false);
   const [subscriptionTier, setSubscriptionTier] = useState<string | null>(null);
+  const [subscriptionLevel, setSubscriptionLevel] = useState<"level-1" | "level-2" | "level-3" | null>(null);
   const isOverviewTab = activeTab === "overview" || activeTab === "nodes" || activeTab === "stability";
+
+  const hasAccess = (required: "level-1" | "level-2" | "level-3") => {
+    if (!subscriptionLevel) {
+      return false;
+    }
+
+    const levels = ["level-1", "level-2", "level-3"];
+    return levels.indexOf(subscriptionLevel) >= levels.indexOf(required);
+  };
+
+  const ensureTabAccess = (tab: string) => {
+    const level1Tabs = ["overview", "nodes", "stability", "spot", "settings"];
+    const level2Tabs = ["issuance", "rwa", "nft", "derivatives", "copytrading", "launchpad"];
+    const level3Tabs = ["mining", "custody"];
+
+    if (level1Tabs.includes(tab) && hasAccess("level-1")) {
+      return true;
+    }
+
+    if (level2Tabs.includes(tab) && hasAccess("level-2")) {
+      return true;
+    }
+
+    if (level3Tabs.includes(tab) && hasAccess("level-3")) {
+      return true;
+    }
+
+    return false;
+  };
 
   useEffect(() => {
     const fetchConfig = async (uid: string) => {
@@ -107,7 +151,7 @@ export default function App() {
         setConfig(docSnap.data() as WhiteLabelConfig);
       } else {
         setConfig({
-          appName: "Axiom Trading Platform",
+          appName: "Hyper-Cross Trading Platform",
           primaryColor: "#3b82f6"
         });
       }
@@ -134,7 +178,12 @@ export default function App() {
         const subRef = doc(db, "subscriptions", currentUser.uid);
         const subSnap = await getDoc(subRef);
         if (subSnap.exists()) {
-          setSubscriptionTier(subSnap.data().tier);
+          const subData = subSnap.data();
+          const tier = subData.tier || subData.tierName || "Level 1";
+          const level = subData.level || "level-1";
+          setSubscriptionTier(tier);
+          setSubscriptionLevel(level);
+          setShowSubscriptions(false);
         } else {
           // If no subscription, show plans
           setShowSubscriptions(true);
@@ -143,6 +192,8 @@ export default function App() {
         if (!refId) {
           setConfig(null);
         }
+        setSubscriptionTier(null);
+        setSubscriptionLevel(null);
       }
     });
 
@@ -188,17 +239,33 @@ export default function App() {
           </Button>
         </div>
         <Suspense fallback={<PanelSkeleton />}>
-          <LazySubscriptionPlans onSelectPlan={(plan) => {
-            setSubscriptionTier(plan);
-            setShowSubscriptions(false);
-            // In a real app, save this to Firestore after payment
-          }} />
+          <LazySubscriptionPlans
+            onSelectPlan={async (activation: SubscriptionActivation) => {
+              setSubscriptionTier(activation.tierName);
+              setSubscriptionLevel(activation.tierId);
+              setShowSubscriptions(false);
+
+              if (user?.uid) {
+                const trialEndsAt = new Date(Date.now() + activation.trialDays * 24 * 60 * 60 * 1000);
+                await setDoc(doc(db, "subscriptions", user.uid), {
+                  tier: activation.tierName,
+                  level: activation.tierId,
+                  provider: activation.provider,
+                  status: "trial",
+                  trialDays: activation.trialDays,
+                  trialEndsAt,
+                  updatedAt: serverTimestamp(),
+                  createdAt: serverTimestamp(),
+                });
+              }
+            }}
+          />
         </Suspense>
       </div>
     );
   }
 
-  const appName = config?.appName || "Axiom Trading Platform";
+  const appName = config?.appName || "Hyper-Cross Trading Platform";
   const primaryColor = config?.primaryColor || "#3b82f6";
   const logoUrl = config?.logoUrl || "";
 
@@ -228,19 +295,19 @@ export default function App() {
           <NavItem icon={<Activity size={18} />} label="Stability Monitor" active={activeTab === 'stability'} onClick={() => setActiveTab('stability')} />
 
           <div className="px-4 py-2 mt-4 text-[10px] font-bold text-white/40 uppercase tracking-widest">Assets & Issuance</div>
-          <NavItem icon={<Coins size={18} />} label="Asset Issuance" active={activeTab === 'issuance'} onClick={() => setActiveTab('issuance')} />
-          <NavItem icon={<Building2 size={18} />} label="RWA Infrastructure" active={activeTab === 'rwa'} onClick={() => setActiveTab('rwa')} />
-          <NavItem icon={<ImageIcon size={18} />} label="NFT Marketplace" active={activeTab === 'nft'} onClick={() => setActiveTab('nft')} />
+          {hasAccess("level-2") && <NavItem icon={<Coins size={18} />} label="Asset Issuance" active={activeTab === 'issuance'} onClick={() => setActiveTab('issuance')} />}
+          {hasAccess("level-2") && <NavItem icon={<Building2 size={18} />} label="RWA Infrastructure" active={activeTab === 'rwa'} onClick={() => setActiveTab('rwa')} />}
+          {hasAccess("level-2") && <NavItem icon={<ImageIcon size={18} />} label="NFT Marketplace" active={activeTab === 'nft'} onClick={() => setActiveTab('nft')} />}
 
           <div className="px-4 py-2 mt-4 text-[10px] font-bold text-white/40 uppercase tracking-widest">Markets & Trading</div>
           <NavItem icon={<LineChartIcon size={18} />} label="Spot & Sports Trading" active={activeTab === 'spot'} onClick={() => setActiveTab('spot')} />
-          <NavItem icon={<TrendingUp size={18} />} label="Derivatives" active={activeTab === 'derivatives'} onClick={() => setActiveTab('derivatives')} />
-          <NavItem icon={<Users size={18} />} label="Copy Trading" active={activeTab === 'copytrading'} onClick={() => setActiveTab('copytrading')} />
-          <NavItem icon={<Rocket size={18} />} label="Launchpad" active={activeTab === 'launchpad'} onClick={() => setActiveTab('launchpad')} />
+          {hasAccess("level-2") && <NavItem icon={<TrendingUp size={18} />} label="Derivatives" active={activeTab === 'derivatives'} onClick={() => setActiveTab('derivatives')} />}
+          {hasAccess("level-2") && <NavItem icon={<Users size={18} />} label="Copy Trading" active={activeTab === 'copytrading'} onClick={() => setActiveTab('copytrading')} />}
+          {hasAccess("level-2") && <NavItem icon={<Rocket size={18} />} label="Launchpad" active={activeTab === 'launchpad'} onClick={() => setActiveTab('launchpad')} />}
 
           <div className="px-4 py-2 mt-4 text-[10px] font-bold text-white/40 uppercase tracking-widest">Infrastructure</div>
-          <NavItem icon={<Pickaxe size={18} />} label="Mining Pools" active={activeTab === 'mining'} onClick={() => setActiveTab('mining')} />
-          <NavItem icon={<Shield size={18} />} label="Custody & Storage" active={activeTab === 'custody'} onClick={() => setActiveTab('custody')} />
+          {hasAccess("level-3") && <NavItem icon={<Pickaxe size={18} />} label="Mining Pools" active={activeTab === 'mining'} onClick={() => setActiveTab('mining')} />}
+          {hasAccess("level-3") && <NavItem icon={<Shield size={18} />} label="Custody & Storage" active={activeTab === 'custody'} onClick={() => setActiveTab('custody')} />}
 
           <div className="px-4 py-2 mt-4 text-[10px] font-bold text-white/40 uppercase tracking-widest">System</div>
           <NavItem icon={<Settings size={18} />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
@@ -280,33 +347,43 @@ export default function App() {
             {activeTab === "settings" && (
               <LazySettingsPanel config={config} onConfigSaved={(newConfig) => setConfig(newConfig)} />
             )}
-            {activeTab === "issuance" && (
+            {activeTab === "issuance" && hasAccess("level-2") && (
               <LazyAssetIssuance primaryColor={primaryColor} userUid={user.uid} config={config} />
             )}
-            {activeTab === "rwa" && (
+            {activeTab === "rwa" && hasAccess("level-2") && (
               <LazyRWAInfrastructure primaryColor={primaryColor} userUid={user.uid} config={config} />
             )}
-            {activeTab === "nft" && (
+            {activeTab === "nft" && hasAccess("level-2") && (
               <LazyNFTMarketplace primaryColor={primaryColor} userUid={user.uid} config={config} />
             )}
             {activeTab === "spot" && <LazyTradingEngine primaryColor={primaryColor} />}
-            {activeTab === "derivatives" && (
+            {activeTab === "derivatives" && hasAccess("level-2") && (
               <LazyDerivatives primaryColor={primaryColor} userUid={user.uid} />
             )}
-            {activeTab === "copytrading" && (
+            {activeTab === "copytrading" && hasAccess("level-2") && (
               <LazyCopyTrading primaryColor={primaryColor} userUid={user.uid} />
             )}
-            {activeTab === "launchpad" && (
+            {activeTab === "launchpad" && hasAccess("level-2") && (
               <LazyLaunchpad primaryColor={primaryColor} userUid={user.uid} />
             )}
-            {activeTab === "mining" && (
+            {activeTab === "mining" && hasAccess("level-3") && (
               <LazyMiningPools primaryColor={primaryColor} userUid={user.uid} />
             )}
-            {activeTab === "custody" && (
+            {activeTab === "custody" && hasAccess("level-3") && (
               <LazyCustodyStorage primaryColor={primaryColor} userUid={user.uid} />
             )}
             {isOverviewTab && (
               <LazyOverviewDashboard data={data} loading={loading} primaryColor={primaryColor} />
+            )}
+            {!ensureTabAccess(activeTab) && (
+              <Card className="glass-panel border-white/20">
+                <CardHeader>
+                  <CardTitle className="text-white">Upgrade Required</CardTitle>
+                  <CardDescription className="text-white/60">
+                    This module is not included in your current level. Upgrade your plan to unlock it.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
             )}
           </Suspense>
         </div>
@@ -316,28 +393,44 @@ export default function App() {
 }
 
 function LoginScreen({ data, config }: { data: any, config: any }) {
-  const [loginMethod, setLoginMethod] = useState<'form' | 'qr'>('form');
-  const appName = config?.appName || 'Axiom Trading Platform';
+  const [authError, setAuthError] = useState<string | null>(null);
+  const appName = config?.appName || 'Hyper-Cross Trading Platform';
   const primaryColor = config?.primaryColor || '#3b82f6';
 
-  const handleGoogleLogin = async () => {
+  const handleSocialLogin = async (provider: GoogleAuthProvider | OAuthProvider) => {
+    setAuthError(null);
     try {
-      const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
+      const code = error?.code || "";
+      const shouldRedirect =
+        code.includes("popup") ||
+        code.includes("cancelled") ||
+        code.includes("blocked") ||
+        /iPhone|iPad|Android/i.test(navigator.userAgent);
+
+      if (shouldRedirect) {
+        try {
+          await signInWithRedirect(auth, provider);
+          return;
+        } catch (redirectError) {
+          console.error("Redirect login failed", redirectError);
+        }
+      }
+
       console.error("Login failed", error);
+      setAuthError("Login failed. Please try again or use another provider.");
     }
   };
 
+  const handleGoogleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    await handleSocialLogin(provider);
+  };
+
   const handleAppleLogin = async () => {
-    try {
-      const provider = new OAuthProvider('apple.com');
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Apple Login failed", error);
-      // Fallback to Google for demo purposes if Apple isn't configured in Firebase
-      handleGoogleLogin();
-    }
+    const provider = new OAuthProvider('apple.com');
+    await handleSocialLogin(provider);
   };
 
   return (
@@ -376,7 +469,7 @@ function LoginScreen({ data, config }: { data: any, config: any }) {
             </h1>
           </div>
           <h2 className="text-5xl font-bold tracking-tighter text-white mb-6 leading-tight">
-            Institutional Trading <br/>
+            Hyper-Cross Trading <br/>
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-white/50" style={{ backgroundImage: `linear-gradient(to right, ${primaryColor}, #ffffff)` }}>
               Made Simple
             </span>
@@ -425,6 +518,12 @@ function LoginScreen({ data, config }: { data: any, config: any }) {
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512" className="h-5 w-5 fill-current"><path d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"/></svg>
               Continue with Google
             </Button>
+
+            {authError && (
+              <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+                {authError}
+              </div>
+            )}
 
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">

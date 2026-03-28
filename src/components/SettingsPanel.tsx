@@ -3,30 +3,66 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Copy, CheckCircle2 } from "lucide-react";
+import { Copy, CheckCircle2, CircleHelp } from "lucide-react";
 import { db, auth } from '../firebase';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+
+function FieldGuide({
+  field,
+  active,
+  onToggle,
+  text,
+}: {
+  field: string;
+  active: string | null;
+  onToggle: (field: string) => void;
+  text: string;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onToggle(field)}
+        className="inline-flex items-center gap-1 text-xs text-white/60 hover:text-white"
+        aria-label={`Show help for ${field}`}
+      >
+        <CircleHelp className="h-4 w-4" />
+        Info
+      </button>
+      {active === field && (
+        <div className="mt-2 rounded-md border border-white/20 bg-white/5 px-3 py-2 text-xs text-white/70">
+          {text}
+        </div>
+      )}
+    </>
+  );
+}
 
 export function SettingsPanel({ config, onConfigSaved }: { config: any, onConfigSaved: (config: any) => void }) {
-  const [appName, setAppName] = useState(config?.appName || 'Axiom Trading Platform');
+  const [appName, setAppName] = useState(config?.appName || 'Hyper-Cross Trading Platform');
   const [primaryColor, setPrimaryColor] = useState(config?.primaryColor || '#3b82f6');
   const [logoUrl, setLogoUrl] = useState(config?.logoUrl || '');
-  const [tokenName, setTokenName] = useState(config?.tokenName || 'AXIOM');
+  const [tokenName, setTokenName] = useState(config?.tokenName || 'HYPER');
   const [kaleidoRestUrl, setKaleidoRestUrl] = useState(config?.kaleidoRestUrl || '');
   const [kaleidoAuthHeader, setKaleidoAuthHeader] = useState(config?.kaleidoAuthHeader || '');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [activeHelp, setActiveHelp] = useState<string | null>(null);
 
   useEffect(() => {
     if (config) {
-      setAppName(config.appName || 'Axiom Trading Platform');
+      setAppName(config.appName || 'Hyper-Cross Trading Platform');
       setPrimaryColor(config.primaryColor || '#3b82f6');
       setLogoUrl(config.logoUrl || '');
-      setTokenName(config.tokenName || 'AXIOM');
+      setTokenName(config.tokenName || 'HYPER');
       setKaleidoRestUrl(config.kaleidoRestUrl || '');
       setKaleidoAuthHeader(config.kaleidoAuthHeader || '');
     }
   }, [config]);
+
+  const toggleHelp = (field: string) => {
+    setActiveHelp((prev) => (prev === field ? null : field));
+  };
 
   const handleSave = async () => {
     if (!auth.currentUser) return;
@@ -99,7 +135,15 @@ export function SettingsPanel({ config, onConfigSaved }: { config: any, onConfig
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
-            <Label htmlFor="appName" className="text-white/70">Platform Name</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="appName" className="text-white/70">Platform Name</Label>
+              <FieldGuide
+                field="platform-name"
+                active={activeHelp}
+                onToggle={toggleHelp}
+                text="This is the name users see in the header and login area. Keep it short and recognizable."
+              />
+            </div>
             <Input 
               id="appName" 
               value={appName} 
@@ -110,7 +154,15 @@ export function SettingsPanel({ config, onConfigSaved }: { config: any, onConfig
           </div>
           
           <div className="space-y-2">
-            <Label htmlFor="primaryColor" className="text-white/70">Brand Color</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="primaryColor" className="text-white/70">Brand Color</Label>
+              <FieldGuide
+                field="brand-color"
+                active={activeHelp}
+                onToggle={toggleHelp}
+                text="Pick one main color used on buttons and highlights. You can paste a hex code like #1d4ed8."
+              />
+            </div>
             <div className="flex gap-3">
               <Input 
                 id="primaryColor" 
@@ -128,7 +180,15 @@ export function SettingsPanel({ config, onConfigSaved }: { config: any, onConfig
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="logoUrl" className="text-white/70">Logo URL (Optional)</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="logoUrl" className="text-white/70">Logo URL (Optional)</Label>
+              <FieldGuide
+                field="logo-url"
+                active={activeHelp}
+                onToggle={toggleHelp}
+                text="Paste a direct image URL for your logo (PNG, JPG, or SVG). Leave blank to use text-only branding."
+              />
+            </div>
             <Input 
               id="logoUrl" 
               value={logoUrl} 
@@ -139,12 +199,20 @@ export function SettingsPanel({ config, onConfigSaved }: { config: any, onConfig
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tokenName" className="text-white/70">Native Token Symbol</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="tokenName" className="text-white/70">Native Token Symbol</Label>
+              <FieldGuide
+                field="token-name"
+                active={activeHelp}
+                onToggle={toggleHelp}
+                text="Use a short ticker symbol, usually 3 to 6 letters, like BTC or HYPER."
+              />
+            </div>
             <Input 
               id="tokenName" 
               value={tokenName} 
               onChange={(e) => setTokenName(e.target.value)}
-              placeholder="e.g. BTC, ETH, AXIOM"
+              placeholder="e.g. BTC, ETH, HYPER"
               className="bg-black/50 border-white/10 text-white uppercase" 
             />
           </div>
@@ -152,7 +220,15 @@ export function SettingsPanel({ config, onConfigSaved }: { config: any, onConfig
           <div className="pt-4 border-t border-white/10 space-y-4">
             <h4 className="text-sm font-medium text-white/80">Advanced Infrastructure (Optional)</h4>
             <div className="space-y-2">
-              <Label htmlFor="kaleidoUrl" className="text-white/70">Kaleido Node REST URL</Label>
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="kaleidoUrl" className="text-white/70">Kaleido Node REST URL</Label>
+                <FieldGuide
+                  field="kaleido-url"
+                  active={activeHelp}
+                  onToggle={toggleHelp}
+                  text="Your Kaleido node API endpoint. Leave empty to keep using the built-in demo API routes."
+                />
+              </div>
               <Input 
                 id="kaleidoUrl" 
                 value={kaleidoRestUrl} 
@@ -162,7 +238,15 @@ export function SettingsPanel({ config, onConfigSaved }: { config: any, onConfig
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="kaleidoAuth" className="text-white/70">Kaleido Authorization Header</Label>
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="kaleidoAuth" className="text-white/70">Kaleido Authorization Header</Label>
+                <FieldGuide
+                  field="kaleido-auth"
+                  active={activeHelp}
+                  onToggle={toggleHelp}
+                  text="Paste the complete authorization value required by your Kaleido API, for example Basic <token>."
+                />
+              </div>
               <Input 
                 id="kaleidoAuth" 
                 value={kaleidoAuthHeader} 

@@ -1,12 +1,172 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import Stripe from "stripe";
+
+const planCatalog: Record<
+  string,
+  { name: string; amount: number; trialDays: number; currency: "usd" }
+> = {
+  "level-1": { name: "Level 1", amount: 2900, trialDays: 3, currency: "usd" },
+  "level-2": { name: "Level 2", amount: 7900, trialDays: 5, currency: "usd" },
+  "level-3": { name: "Level 3", amount: 12900, trialDays: 7, currency: "usd" },
+};
+
+function getBaseUrl(req: express.Request) {
+  const origin = req.headers.origin;
+  if (origin && typeof origin === "string") {
+    return origin;
+  }
+  return `http://localhost:3000`;
+}
+
+async function getPayPalAccessToken() {
+  const clientId = process.env.PAYPAL_CLIENT_ID;
+  const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    throw new Error("PayPal credentials are not configured");
+  }
+
+  const apiBase = process.env.PAYPAL_API_BASE || "https://api-m.sandbox.paypal.com";
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+
+  const response = await fetch(`${apiBase}/v1/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: "grant_type=client_credentials",
+  });
+
+  const payload = await response.json();
+  if (!response.ok || !payload.access_token) {
+    throw new Error(payload?.error_description || "Could not authenticate with PayPal");
+  }
+
+  return { token: payload.access_token, apiBase };
+}
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json());
+
+  app.post("/api/payments/start-checkout", async (req, res) => {
+    try {
+      const { provider, planId } = req.body as {
+        provider: "stripe" | "paypal";
+        planId: string;
+      };
+
+      const selectedPlan = planCatalog[planId];
+      if (!selectedPlan) {
+        return res.status(400).json({ error: "Unknown plan" });
+      }
+
+      const baseUrl = getBaseUrl(req);
+
+      // Allow local trials to continue even if payment credentials are not configured yet.
+      if (!provider || (!process.env.STRIPE_SECRET_KEY && !process.env.PAYPAL_CLIENT_ID)) {
+        return res.json({
+          ok: true,
+          mode: "trial-only",
+          checkoutUrl: null,
+          message: "Payment provider is not configured, trial access granted.",
+        });
+      }
+
+      if (provider === "stripe") {
+        if (!process.env.STRIPE_SECRET_KEY) {
+          return res.json({
+            ok: true,
+            mode: "trial-only",
+            checkoutUrl: null,
+            message: "Stripe key missing, trial access granted.",
+          });
+        }
+
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+          apiVersion: "2025-02-24.acacia",
+        });
+
+        const configuredPrice = process.env[`STRIPE_PRICE_${planId.toUpperCase().replace("-", "_")}`];
+
+        const session = await stripe.checkout.sessions.create({
+          mode: "subscription",
+          success_url: `${baseUrl}?checkout=success&provider=stripe&plan=${planId}`,
+          cancel_url: `${baseUrl}?checkout=cancelled&provider=stripe&plan=${planId}`,
+          line_items: configuredPrice
+            ? [{ price: configuredPrice, quantity: 1 }]
+            : [
+                {
+                  price_data: {
+                    currency: selectedPlan.currency,
+                    product_data: { name: `Hyper-Cross ${selectedPlan.name}` },
+                    unit_amount: selectedPlan.amount,
+                    recurring: { interval: "month" },
+                  },
+                  quantity: 1,
+                },
+              ],
+          subscription_data: {
+            trial_period_days: selectedPlan.trialDays,
+          },
+        });
+
+        return res.json({ ok: true, checkoutUrl: session.url });
+      }
+
+      if (provider === "paypal") {
+        const { token, apiBase } = await getPayPalAccessToken();
+
+        const orderResponse = await fetch(`${apiBase}/v2/checkout/orders`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            intent: "CAPTURE",
+            purchase_units: [
+              {
+                amount: {
+                  currency_code: selectedPlan.currency.toUpperCase(),
+                  value: (selectedPlan.amount / 100).toFixed(2),
+                },
+                description: `Hyper-Cross ${selectedPlan.name} (${selectedPlan.trialDays}-day trial)`,
+              },
+            ],
+            application_context: {
+              return_url: `${baseUrl}?checkout=success&provider=paypal&plan=${planId}`,
+              cancel_url: `${baseUrl}?checkout=cancelled&provider=paypal&plan=${planId}`,
+              brand_name: "Hyper-Cross Trading Platform",
+              user_action: "PAY_NOW",
+            },
+          }),
+        });
+
+        const orderPayload = await orderResponse.json();
+        if (!orderResponse.ok) {
+          return res.status(500).json({ error: orderPayload?.message || "PayPal order creation failed" });
+        }
+
+        const approvalUrl = orderPayload?.links?.find((link: any) => link.rel === "approve")?.href;
+        if (!approvalUrl) {
+          return res.status(500).json({ error: "No PayPal approval URL received" });
+        }
+
+        return res.json({ ok: true, checkoutUrl: approvalUrl });
+      }
+
+      return res.status(400).json({ error: "Unsupported provider" });
+    } catch (error: any) {
+      console.error("Error starting checkout:", error);
+      return res.status(500).json({ error: error?.message || "Checkout startup failed" });
+    }
+  });
 
   // Proxy route for Kaleido REST Gateway
   app.get("/api/kaleido", async (req, res) => {

@@ -1,103 +1,157 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, Sparkles, Zap, Shield } from "lucide-react";
+import { Check, Shield, Zap, Crown, CreditCard } from "lucide-react";
 
 const plans = [
   {
-    name: "3D Cross-Alpha",
-    price: "$39",
+    id: "level-1",
+    name: "Level 1",
+    price: "$29",
     period: "/month",
-    description: "Essential tools for the modern trader.",
+    trialDays: 3,
+    description: "Limited access for quick starts and smaller teams.",
     features: [
-      "Real-time Spot Trading",
-      "Basic Charting Tools",
-      "Standard Mining Pool Access",
-      "Email Support"
+      "Overview dashboard and node controls",
+      "Stability monitor and spot trading",
+      "Basic platform settings",
+      "Email support"
     ],
     icon: <Zap className="h-6 w-6 text-blue-400" />,
-    color: "blue"
+    accent: "border-blue-400/50",
   },
   {
-    name: "4D Hyper-Cross Axiom",
-    price: "$89",
+    id: "level-2",
+    name: "Level 2",
+    price: "$79",
     period: "/month",
-    description: "Advanced analytics and personal customization.",
+    trialDays: 5,
+    description: "Higher access for growth teams that need advanced modules.",
     features: [
-      "Everything in 3D Cross-Alpha",
-      "Derivatives & Futures Trading",
-      "Copy Trading Access",
-      "Basic White-Labeling (Colors)",
+      "Everything in Level 1",
+      "Asset issuance, RWA, and NFT marketplace",
+      "Derivatives, copy trading, and launchpad",
+      "Expanded white-label controls",
       "Priority Support"
     ],
-    icon: <Shield className="h-6 w-6 text-purple-400" />,
-    color: "purple",
+    icon: <Shield className="h-6 w-6 text-emerald-400" />,
+    accent: "border-emerald-400/50",
     popular: true
   },
   {
-    name: "5D Hypercross Omega",
-    price: "$127",
+    id: "level-3",
+    name: "Level 3",
+    price: "$129",
     period: "/month",
-    description: "The ultimate institutional-grade experience.",
+    trialDays: 7,
+    description: "Complete white-label and full institutional module access.",
     features: [
-      "Everything in 4D Hyper-Cross Axiom",
-      "Full White-Labeling (Logo, Name, URL)",
-      "Launchpad Access",
-      "MPC Custody API Access",
+      "Everything in Level 2",
+      "Full white-labeling (branding and controls)",
+      "Mining pools and custody modules",
+      "Institution-ready operations",
       "24/7 Dedicated Account Manager"
     ],
-    icon: <Sparkles className="h-6 w-6 text-amber-400" />,
-    color: "amber",
-    trial: "15-Day Free Trial"
+    icon: <Crown className="h-6 w-6 text-amber-400" />,
+    accent: "border-amber-400/50",
   }
-];
+] as const;
 
-export function SubscriptionPlans({ onSelectPlan }: { onSelectPlan: (plan: string) => void }) {
+type PlanDefinition = (typeof plans)[number];
+type Provider = "stripe" | "paypal";
+
+export function SubscriptionPlans({
+  onSelectPlan,
+}: {
+  onSelectPlan: (plan: {
+    tierId: "level-1" | "level-2" | "level-3";
+    tierName: string;
+    trialDays: number;
+    provider: Provider;
+  }) => void;
+}) {
   const [selected, setSelected] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSelect = (planName: string) => {
-    setSelected(planName);
-    // In a real app, this would trigger a Stripe checkout or similar
-    setTimeout(() => {
-      onSelectPlan(planName);
-    }, 1000);
+  const startCheckout = async (plan: PlanDefinition, provider: Provider) => {
+    setSelected(`${plan.id}-${provider}`);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/payments/start-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider,
+          planId: plan.id,
+          planName: plan.name,
+          trialDays: plan.trialDays,
+        }),
+      });
+
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload?.error || "Could not start checkout");
+      }
+
+      // In demo mode, the backend may return no URL and direct activation is allowed.
+      if (payload.checkoutUrl) {
+        window.open(payload.checkoutUrl, "_blank", "noopener,noreferrer");
+      }
+
+      onSelectPlan({
+        tierId: plan.id,
+        tierName: plan.name,
+        trialDays: plan.trialDays,
+        provider,
+      });
+    } catch (err: any) {
+      console.error(err);
+      setError(err?.message || "Payment setup failed. Please try again.");
+      setSelected(null);
+    }
   };
 
   return (
     <div className="py-12 px-4 max-w-7xl mx-auto">
       <div className="text-center mb-12">
         <h2 className="text-3xl md:text-5xl font-bold text-white mb-4 tracking-tight">
-          Choose Your Dimension
+          Choose Your Access Level
         </h2>
         <p className="text-white/60 text-lg max-w-2xl mx-auto">
-          Unlock the full potential of your trading and infrastructure with our tiered access plans.
+          Start with a free trial, then keep the level that matches your operation.
         </p>
       </div>
+
+      {error && (
+        <div className="mb-6 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {plans.map((plan) => (
           <Card 
-            key={plan.name} 
+            key={plan.id}
             className={`relative glass-panel border-t-2 overflow-hidden flex flex-col ${
-              plan.popular ? 'neon-border-purple transform md:-translate-y-4' : 'border-white/10'
+              plan.popular ? 'transform md:-translate-y-4' : 'border-white/10'
             }`}
           >
             {plan.popular && (
-              <div className="absolute top-0 left-0 w-full bg-gradient-to-r from-[#1500ff] to-[#c300ff] text-white text-xs font-bold uppercase tracking-widest text-center py-1">
+              <div className="absolute top-0 left-0 w-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-xs font-bold uppercase tracking-widest text-center py-1">
                 Most Popular
               </div>
             )}
             
-            <CardHeader className={`pt-8 pb-4 ${plan.popular ? 'mt-4' : ''}`}>
+            <CardHeader className={`pt-8 pb-4 border-b ${plan.accent} ${plan.popular ? 'mt-4' : ''}`}>
               <div className="flex justify-between items-start mb-4">
-                <div className={`p-3 rounded-lg bg-${plan.color}-500/10`}>
+                <div className="p-3 rounded-lg bg-white/5">
                   {plan.icon}
                 </div>
-                {plan.trial && (
-                  <span className="bg-amber-500/20 text-amber-400 text-xs font-medium px-2.5 py-0.5 rounded border border-amber-500/30">
-                    {plan.trial}
-                  </span>
-                )}
+                <span className="bg-white/10 text-white text-xs font-medium px-2.5 py-0.5 rounded border border-white/20">
+                  {plan.trialDays}-Day Trial
+                </span>
               </div>
               <CardTitle className="text-xl text-white">{plan.name}</CardTitle>
               <CardDescription className="text-white/50 min-h-[40px]">
@@ -110,29 +164,44 @@ export function SubscriptionPlans({ onSelectPlan }: { onSelectPlan: (plan: strin
                 <span className="text-4xl font-bold text-white">{plan.price}</span>
                 <span className="text-white/50">{plan.period}</span>
               </div>
-              
+
               <ul className="space-y-3">
-                {plan.features.map((feature, i) => (
-                  <li key={i} className="flex items-start gap-3 text-sm text-white/70">
-                    <Check className={`h-5 w-5 shrink-0 text-${plan.color}-400`} />
+                {plan.features.map((feature) => (
+                  <li key={feature} className="flex items-start gap-3 text-sm text-white/70">
+                    <Check className="h-5 w-5 shrink-0 text-white" />
                     <span>{feature}</span>
                   </li>
                 ))}
               </ul>
+
+              <p className="mt-5 text-xs text-white/60">
+                Trial starts immediately after checkout and can be canceled any time before renewal.
+              </p>
             </CardContent>
             
-            <CardFooter className="pt-6">
-              <Button 
-                onClick={() => handleSelect(plan.name)}
-                disabled={selected === plan.name}
-                className={`w-full ${
-                  plan.popular 
-                    ? 'bg-gradient-to-r from-[#1500ff] to-[#c300ff] text-white hover:opacity-90' 
-                    : 'bg-white/10 text-white hover:bg-white/20'
-                }`}
+            <CardFooter className="pt-6 grid grid-cols-1 gap-3">
+              <Button
+                onClick={() => startCheckout(plan, "stripe")}
+                disabled={selected === `${plan.id}-stripe` || selected === `${plan.id}-paypal`}
+                className="w-full bg-white/10 text-white hover:bg-white/20"
               >
-                {selected === plan.name ? 'Processing...' : 'Select Plan'}
+                <CreditCard className="mr-2 h-4 w-4" />
+                {selected === `${plan.id}-stripe` ? 'Processing...' : 'Start with Stripe'}
               </Button>
+
+              <Button
+                onClick={() => startCheckout(plan, "paypal")}
+                disabled={selected === `${plan.id}-stripe` || selected === `${plan.id}-paypal`}
+                className="w-full bg-[#ffc439] text-black hover:bg-[#ffb800]"
+              >
+                {selected === `${plan.id}-paypal` ? 'Processing...' : 'Start with PayPal'}
+              </Button>
+
+              {plan.popular && (
+                  <span className="bg-amber-500/20 text-amber-400 text-xs font-medium px-2.5 py-0.5 rounded border border-amber-500/30">
+                    Recommended for scaling teams
+                  </span>
+                )}
             </CardFooter>
           </Card>
         ))}
