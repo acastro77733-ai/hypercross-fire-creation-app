@@ -1,0 +1,263 @@
+{
+  "entities": {
+    "WhiteLabelConfig": {
+      "title": "WhiteLabelConfig",
+      "description": "Configuration for a user's white-labeled dashboard.",
+      "type": "object",
+      "properties": {
+        "appName": {
+          "type": "string",
+          "description": "The custom name of the application."
+        },
+        "primaryColor": {
+          "type": "string",
+          "description": "The primary theme color (hex code)."
+        },
+        "secondaryColor": {
+          "type": "string",
+          "description": "The secondary theme color (hex code)."
+        },
+        "accentColor": {
+          "type": "string",
+          "description": "The accent theme color (hex code)."
+        },
+        "kaleidoRestUrl": {
+          "type": "string",
+          "description": "The user's specific Kaleido REST API URL."
+        },
+        "kaleidoAuthHeader": {
+          "type": "string",
+          "description": "The user's specific Kaleido Basic Auth header (base64 encoded)."
+        },
+        "ownerUid": {
+          "type": "string",
+          "description": "The Firebase UID of the user who owns this configuration."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the configuration was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the configuration was last updated."
+        }
+      },
+      "required": ["appName", "primaryColor", "ownerUid", "createdAt", "updatedAt"]
+    },
+    "IssuedAsset": {
+      "title": "Issued Asset",
+      "description": "A digital asset minted on the platform.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "ticker": { "type": "string" },
+        "supply": { "type": "number" },
+        "type": { "type": "string" },
+        "holders": { "type": "number" },
+        "status": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "ticker", "supply", "type", "holders", "status", "ownerUid", "createdAt"]
+    },
+    "RealWorldAsset": {
+      "title": "Real World Asset",
+      "description": "A tokenized real world asset.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "valuation": { "type": "number" },
+        "fractions": { "type": "number" },
+        "oracleStatus": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "category", "valuation", "fractions", "oracleStatus", "ownerUid", "createdAt"]
+    },
+    "NftRevenueModel": {
+      "title": "NFT Revenue Model",
+      "description": "Platform-wide fee structures for NFTs.",
+      "type": "object",
+      "properties": {
+        "tradingFee": { "type": "number" },
+        "creatorRoyalty": { "type": "number" },
+        "mintingFee": { "type": "number" },
+        "ownerUid": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tradingFee", "creatorRoyalty", "mintingFee", "ownerUid", "updatedAt"]
+    },
+    "NftCollection": {
+      "title": "NFT Collection",
+      "description": "A deployed NFT collection.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "volume": { "type": "number" },
+        "floorPrice": { "type": "number" },
+        "change": { "type": "number" },
+        "contractAddress": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "volume", "floorPrice", "change", "contractAddress", "ownerUid", "createdAt"]
+    },
+    "RiskEngineSettings": {
+      "title": "Risk Engine Settings",
+      "description": "Global risk parameters for derivatives trading.",
+      "type": "object",
+      "properties": {
+        "maxLeverage": { "type": "number" },
+        "maintenanceMargin": { "type": "number" },
+        "ownerUid": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["maxLeverage", "maintenanceMargin", "ownerUid", "updatedAt"]
+    },
+    "CopiedTrader": {
+      "title": "Copied Trader",
+      "description": "A trader being copied by the user.",
+      "type": "object",
+      "properties": {
+        "traderId": { "type": "string" },
+        "traderName": { "type": "string" },
+        "allocation": { "type": "number" },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["traderId", "traderName", "allocation", "ownerUid", "createdAt"]
+    },
+    "TokenSale": {
+      "title": "Token Sale",
+      "description": "An IDO or IEO token sale.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "ticker": { "type": "string" },
+        "raised": { "type": "number" },
+        "target": { "type": "number" },
+        "status": { "type": "string", "enum": ["Live", "Upcoming", "Completed"] },
+        "participants": { "type": "number" },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "ticker", "raised", "target", "status", "participants", "ownerUid", "createdAt"]
+    },
+    "MiningPool": {
+      "title": "Mining Pool",
+      "description": "A configured mining pool.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "algo": { "type": "string" },
+        "fee": { "type": "number" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "algo", "fee", "status", "ownerUid", "createdAt"]
+    },
+    "Vault": {
+      "title": "Vault",
+      "description": "A custody vault for an asset.",
+      "type": "object",
+      "properties": {
+        "asset": { "type": "string" },
+        "total": { "type": "number" },
+        "cold": { "type": "number" },
+        "hot": { "type": "number" },
+        "status": { "type": "string", "enum": ["Secure", "Rebalancing"] },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["asset", "total", "cold", "hot", "status", "ownerUid", "createdAt"]
+    },
+    "PendingTransaction": {
+      "title": "Pending Transaction",
+      "description": "A multi-sig transaction awaiting signatures.",
+      "type": "object",
+      "properties": {
+        "txId": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "string" },
+        "to": { "type": "string" },
+        "sigs": { "type": "number" },
+        "requiredSigs": { "type": "number" },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["txId", "type", "amount", "to", "sigs", "requiredSigs", "ownerUid", "createdAt"]
+    }
+  },
+  "firestore": {
+    "whiteLabelConfigs/{configId}": {
+      "schema": {
+        "$ref": "#/entities/WhiteLabelConfig"
+      },
+      "description": "Stores the white-label configurations for users. The configId is typically the user's UID."
+    },
+    "issuedAssets/{assetId}": {
+      "schema": {
+        "$ref": "#/entities/IssuedAsset"
+      },
+      "description": "Stores user-minted digital assets."
+    },
+    "realWorldAssets/{rwaId}": {
+      "schema": {
+        "$ref": "#/entities/RealWorldAsset"
+      },
+      "description": "Stores tokenized real world assets."
+    },
+    "nftRevenueModels/{configId}": {
+      "schema": {
+        "$ref": "#/entities/NftRevenueModel"
+      },
+      "description": "Stores the NFT revenue model settings for users. The configId is typically the user's UID."
+    },
+    "nftCollections/{collectionId}": {
+      "schema": {
+        "$ref": "#/entities/NftCollection"
+      },
+      "description": "Stores deployed NFT collections."
+    },
+    "riskEngineSettings/{configId}": {
+      "schema": {
+        "$ref": "#/entities/RiskEngineSettings"
+      },
+      "description": "Stores risk engine settings for users. The configId is typically the user's UID."
+    },
+    "copiedTraders/{copyId}": {
+      "schema": {
+        "$ref": "#/entities/CopiedTrader"
+      },
+      "description": "Stores the traders a user is currently copying."
+    },
+    "tokenSales/{saleId}": {
+      "schema": {
+        "$ref": "#/entities/TokenSale"
+      },
+      "description": "Stores token launchpad sales."
+    },
+    "miningPools/{poolId}": {
+      "schema": {
+        "$ref": "#/entities/MiningPool"
+      },
+      "description": "Stores configured mining pools."
+    },
+    "vaults/{vaultId}": {
+      "schema": {
+        "$ref": "#/entities/Vault"
+      },
+      "description": "Stores custody vaults."
+    },
+    "pendingTransactions/{txId}": {
+      "schema": {
+        "$ref": "#/entities/PendingTransaction"
+      },
+      "description": "Stores pending multi-sig transactions."
+    }
+  }
+}
